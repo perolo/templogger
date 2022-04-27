@@ -15,11 +15,6 @@ import (
 var db *sql.DB
 var cfg Config
 
-type Reading struct {
-	Id          int
-	Sensor      int
-	Temperature float64
-}
 type Config struct {
 	DbFile   string `properties:"dbfile"`
 	Interval int    `properties:"interval"`
@@ -37,7 +32,8 @@ func initdb() {
 	Check(err)
 	statement, prepError := db.Prepare("CREATE TABLE IF NOT EXISTS reading (Id INTEGER PRIMARY KEY AUTOINCREMENT, Sensor INTEGER, Temperature NUMERIC, Datetime DATETIME)")
 	Check(prepError)
-	statement.Exec()
+	_, err = statement.Exec()
+	Check(err)
 }
 
 func saveToDatabase(Sensor int, Temperature float64) {
