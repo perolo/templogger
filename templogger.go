@@ -1,4 +1,4 @@
-package templogger
+package main
 
 import (
 	"database/sql"
@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"log"
 	"time"
-
+	"strings"
+	"strconv"
 	"github.com/magiconair/properties"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/yryz/ds18b20"
@@ -18,6 +19,9 @@ var cfg Config
 type Config struct {
 	DbFile   string `properties:"dbfile"`
 	Interval int    `properties:"interval"`
+	SensorNames string `properties:"sensornames"`
+	ExpectedSensor string `properties:"expectedsensors"`
+	SensorCalibration string `properties:"sensorcalibration"`
 }
 
 func Check(e error) {
@@ -55,34 +59,57 @@ func main() {
 	if err := p.Decode(&cfg); err != nil {
 		log.Fatal(err)
 	}
+	
+	sensorNames := strings.Split(cfg.SensorNames, ",")
+	expectedSensors := strings.Split(cfg.ExpectedSensor, ",")
+	sensorCalibration:= strings.Split(cfg.SensorCalibration, ",")
+	calib := make(map[string]float64)
 
 	initdb()
-	calib := make(map[string]float64)
+
+	if err := db.Ping(); err != nil {
+		log.Fatalf("unable to reach database: %v", err)
+	}
+	fmt.Println("database is reachable")
+
 	sensors, err := ds18b20.Sensors()
 	if err != nil {
 		panic(err)
 	}
 
-	calib["28-1b61221e64ff"] = -0.12
-	calib["28-7167221e64ff"] = -0.06
-	calib["28-a4a8211e64ff"] = 0.06
-	calib["28-039d231e64ff"] = 0.06
-	calib["28-41b7231e64ff"] = 0.00
-	calib["28-6d8f231e64ff"] = 0.00
+	if len(expectedSensors)!= len(sensorCalibration) {
+		fmt.Printf("Expected equal number sensors and calibration, setting calibration to 0")
+		for _, c := range sensors{
+			calib[c] = 0	
+		}
+	} else {
+		for k, c := range sensors{
+			if c != expectedSensors[k] {
+				fmt.Printf("Expected sensor:%s, found sensor: %s ", expectedSensors[k], c)
+			}
+		}
+		for k, c := range sensorCalibration{
+			x, err := strconv.ParseFloat(c, 64)
+			if err != nil {
+				panic(err)
+			}
+			calib[expectedSensors[k]] = x	
+		} 	
+	}
 
-	//[28-1b61221e64ff 28-7167221e64ff 28-a4a8211e64ff 28-039d231e64ff 28-41b7231e64ff 28-6d8f231e64ff]
-
+	fmt.Printf("sensor IDs: %v\n", sensorNames)
+	fmt.Printf("sensor IDs: %v\n", sensorCalibration)
 	fmt.Printf("sensor IDs: %v\n", sensors)
 	
  	/*i:= 1 ; i<10;i++*/ 
 	for{
-		theTime := time.Now().Format("2006-01-02-15:04:05")
+		//theTime := time.Now().Format("2006-01-02-15:04:05")
 		for key, sensor := range sensors {
-			fmt.Printf("Time: %s\n", theTime)
+			//fmt.Printf("Time: %s\n", theTime)
 			t, err := ds18b20.Temperature(sensor)
 			t = t - calib[sensor]
 			if err == nil {
-				fmt.Printf("sensor: %s key: %v temperature: %.2f°C \n", sensor, key, t)
+				//fmt.Printf("sensor: %s key: %v temperature: %.2f°C \n", sensor, key, t)
 				saveToDatabase(key, t)
 			}
 		}

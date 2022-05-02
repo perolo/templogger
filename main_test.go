@@ -1,4 +1,4 @@
-package templogger
+package main
 
 import (
 	"testing"
