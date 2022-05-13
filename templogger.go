@@ -8,9 +8,13 @@ import (
 	"time"
 	"strings"
 	"strconv"
+	"runtime"
 	"github.com/magiconair/properties"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/yryz/ds18b20"
+	"net/http"
+	_"net/http/pprof"
+	"github.com/pkg/profile"	
 )
 
 var db *sql.DB
@@ -38,7 +42,18 @@ func initdb() {
 	Check(prepError)
 	_, err = statement.Exec()
 	Check(err)
+	if err := db.Ping(); err != nil {
+		log.Fatalf("unable to reach database: %v", err)
+	}
+	fmt.Printf("%s: Database is reachable\n", time.Now().Format("2006-01-02-15:04:05"))
+
 }
+
+func closedb() {
+	err := db.Close()
+	Check(err)
+}
+
 
 func saveToDatabase(Sensor int, Temperature float64) {
 
@@ -50,6 +65,11 @@ func saveToDatabase(Sensor int, Temperature float64) {
 }
 
 func main() {
+	defer profile.Start(profile.MemProfile).Stop()
+
+	go func() {
+			http.ListenAndServe(":8080", nil)
+	}()
 
 	propPtr := flag.String("prop", "templogger.properties", "a string")
 	flag.Parse()
@@ -65,12 +85,8 @@ func main() {
 	sensorCalibration:= strings.Split(cfg.SensorCalibration, ",")
 	calib := make(map[string]float64)
 
-	initdb()
-
-	if err := db.Ping(); err != nil {
-		log.Fatalf("unable to reach database: %v", err)
-	}
-	fmt.Println("database is reachable")
+	dbinitialized := false
+	initTime := time.Now()
 
 	sensors, err := ds18b20.Sensors()
 	if err != nil {
@@ -103,9 +119,13 @@ func main() {
 	
  	/*i:= 1 ; i<10;i++*/ 
 	for{
-		//theTime := time.Now().Format("2006-01-02-15:04:05")
+		if !dbinitialized {
+			initdb()
+			dbinitialized = true
+			initTime = time.Now()
+		}
+		loopStart := time.Now()
 		for key, sensor := range sensors {
-			//fmt.Printf("Time: %s\n", theTime)
 			t, err := ds18b20.Temperature(sensor)
 			t = t - calib[sensor]
 			if err == nil {
@@ -113,6 +133,14 @@ func main() {
 				saveToDatabase(key, t)
 			}
 		}
-		time.Sleep(time.Duration(cfg.Interval) * time.Second)
+		// TODO Workaround for Memory leak in database - find root cause
+		if time.Since(initTime)> time.Duration(24*time.Hour) {
+			closedb()
+			time.Sleep(time.Duration(time.Second))
+			runtime.GC()
+			dbinitialized = false
+		}
+		loopTime := time.Since(loopStart)
+		time.Sleep(time.Duration(cfg.Interval) * time.Second - loopTime)  //TODO Should be possible with better time drift control
 	}
 }
