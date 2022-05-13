@@ -4,27 +4,27 @@ import (
 	"database/sql"
 	"flag"
 	"fmt"
-	"log"
-	"time"
-	"strings"
-	"strconv"
-	"runtime"
 	"github.com/magiconair/properties"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/pkg/profile"
 	"github.com/yryz/ds18b20"
+	"log"
 	"net/http"
-	_"net/http/pprof"
-	"github.com/pkg/profile"	
+	_ "net/http/pprof"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
 )
 
 var db *sql.DB
 var cfg Config
 
 type Config struct {
-	DbFile   string `properties:"dbfile"`
-	Interval int    `properties:"interval"`
-	SensorNames string `properties:"sensornames"`
-	ExpectedSensor string `properties:"expectedsensors"`
+	DbFile            string `properties:"dbfile"`
+	Interval          int    `properties:"interval"`
+	SensorNames       string `properties:"sensornames"`
+	ExpectedSensor    string `properties:"expectedsensors"`
 	SensorCalibration string `properties:"sensorcalibration"`
 }
 
@@ -54,7 +54,6 @@ func closedb() {
 	Check(err)
 }
 
-
 func saveToDatabase(Sensor int, Temperature float64) {
 
 	statement, err := db.Prepare("INSERT INTO reading (Sensor, Temperature, Datetime) VALUES (?,?,CURRENT_TIMESTAMP)")
@@ -68,7 +67,8 @@ func main() {
 	defer profile.Start(profile.MemProfile).Stop()
 
 	go func() {
-			http.ListenAndServe(":8080", nil)
+		err := http.ListenAndServe(":8080", nil)
+		Check(err)
 	}()
 
 	propPtr := flag.String("prop", "templogger.properties", "a string")
@@ -79,10 +79,10 @@ func main() {
 	if err := p.Decode(&cfg); err != nil {
 		log.Fatal(err)
 	}
-	
+
 	sensorNames := strings.Split(cfg.SensorNames, ",")
 	expectedSensors := strings.Split(cfg.ExpectedSensor, ",")
-	sensorCalibration:= strings.Split(cfg.SensorCalibration, ",")
+	sensorCalibration := strings.Split(cfg.SensorCalibration, ",")
 	calib := make(map[string]float64)
 
 	dbinitialized := false
@@ -93,32 +93,32 @@ func main() {
 		panic(err)
 	}
 
-	if len(expectedSensors)!= len(sensorCalibration) {
+	if len(expectedSensors) != len(sensorCalibration) {
 		fmt.Printf("Expected equal number sensors and calibration, setting calibration to 0")
-		for _, c := range sensors{
-			calib[c] = 0	
+		for _, c := range sensors {
+			calib[c] = 0
 		}
 	} else {
-		for k, c := range sensors{
+		for k, c := range sensors {
 			if c != expectedSensors[k] {
 				fmt.Printf("Expected sensor:%s, found sensor: %s ", expectedSensors[k], c)
 			}
 		}
-		for k, c := range sensorCalibration{
+		for k, c := range sensorCalibration {
 			x, err := strconv.ParseFloat(c, 64)
 			if err != nil {
 				panic(err)
 			}
-			calib[expectedSensors[k]] = x	
-		} 	
+			calib[expectedSensors[k]] = x
+		}
 	}
 
 	fmt.Printf("sensor IDs: %v\n", sensorNames)
 	fmt.Printf("sensor IDs: %v\n", sensorCalibration)
 	fmt.Printf("sensor IDs: %v\n", sensors)
-	
- 	/*i:= 1 ; i<10;i++*/ 
-	for{
+
+	/*i:= 1 ; i<10;i++*/
+	for {
 		if !dbinitialized {
 			initdb()
 			dbinitialized = true
@@ -134,13 +134,13 @@ func main() {
 			}
 		}
 		// TODO Workaround for Memory leak in database - find root cause
-		if time.Since(initTime)> time.Duration(24*time.Hour) {
+		if time.Since(initTime) > 24*time.Hour {
 			closedb()
-			time.Sleep(time.Duration(time.Second))
+			time.Sleep(time.Second)
 			runtime.GC()
 			dbinitialized = false
 		}
 		loopTime := time.Since(loopStart)
-		time.Sleep(time.Duration(cfg.Interval) * time.Second - loopTime)  //TODO Should be possible with better time drift control
+		time.Sleep(time.Duration(cfg.Interval)*time.Second - loopTime) //TODO Should be possible with better time drift control
 	}
 }
